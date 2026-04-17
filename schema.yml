@@ -1,0 +1,322 @@
+# ═══════════════════════════════════════════════════════════════════
+# Order Management Spreadsheet — Relational Data Model
+# ═══════════════════════════════════════════════════════════════════
+# This YAML file defines the tables, fields, relationships, dropdowns,
+# and views that the build script uses to generate the Excel workbook.
+#
+# See README.md for how to modify this file.
+# ═══════════════════════════════════════════════════════════════════
+
+workbook:
+  name: "Order Management"
+  version: "1.0"
+  currency: GBP
+  currency_symbol: "£"
+  default_rows: 500     # Blank rows reserved per table for data entry
+  sample_data: true     # Populate tables with illustrative data
+
+# ── Enumerations (reusable dropdowns) ──
+enums:
+  order_status:
+    - Draft
+    - Confirmed
+    - Shipped
+    - Invoiced
+    - Paid
+    - Cancelled
+  po_status:
+    - Draft
+    - Sent
+    - Received
+    - Invoiced
+    - Paid
+    - Cancelled
+  vat_code:
+    - STD   # Standard 20%
+    - RED   # Reduced 5%
+    - ZER   # Zero-rated
+    - EXM   # Exempt
+    - OSC   # Outside scope
+  product_kind:
+    - Sellable        # Can appear on sales orders only
+    - Purchasable     # Can appear on purchase orders only
+    - Both            # Can appear on both
+  payment_method:
+    - Bank Transfer
+    - Card
+    - Cash
+    - Cheque
+    - Other
+  payment_direction:
+    - In              # From customer
+    - Out             # To supplier
+
+# ── VAT rate lookup (used by line-item formulas) ──
+vat_rates:
+  STD: 0.20
+  RED: 0.05
+  ZER: 0.00
+  EXM: 0.00
+  OSC: 0.00
+
+# ── Tables ──
+#
+# Field types:
+#   id         auto-generated primary key (prefix + zero-padded number)
+#   fk         foreign key — dropdown sourced from referenced table
+#   text       plain text
+#   number     numeric
+#   currency   GBP amount, formatted
+#   percent    percentage, formatted
+#   date       date value
+#   enum       dropdown from a named enum
+#   bool       Yes/No dropdown
+#   formula    Excel formula (use {col} for same-row column reference)
+#   lookup     auto-populated from related table via XLOOKUP
+#
+tables:
+
+  # ─────────────────────────────────────────────────────────────────
+  # Customers
+  # ─────────────────────────────────────────────────────────────────
+  - name: Customers
+    description: People and companies we sell to
+    primary_key: customer_id
+    tab_color: "3B82F6"
+    fields:
+      - {name: customer_id, type: id, prefix: "CUST-", width: 12}
+      - {name: name, type: text, required: true, width: 30}
+      - {name: contact_name, type: text, width: 22}
+      - {name: email, type: text, width: 28}
+      - {name: phone, type: text, width: 16}
+      - {name: billing_address, type: text, width: 35}
+      - {name: vat_number, type: text, width: 16}
+      - {name: credit_limit, type: currency, width: 14}
+      - {name: active, type: bool, default: "Yes", width: 10}
+      - {name: created_date, type: date, width: 14}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Suppliers
+  # ─────────────────────────────────────────────────────────────────
+  - name: Suppliers
+    description: People and companies we buy from
+    primary_key: supplier_id
+    tab_color: "3B82F6"
+    fields:
+      - {name: supplier_id, type: id, prefix: "SUPP-", width: 12}
+      - {name: name, type: text, required: true, width: 30}
+      - {name: contact_name, type: text, width: 22}
+      - {name: email, type: text, width: 28}
+      - {name: phone, type: text, width: 16}
+      - {name: address, type: text, width: 35}
+      - {name: vat_number, type: text, width: 16}
+      - {name: payment_terms_days, type: number, width: 12, default: 30}
+      - {name: active, type: bool, default: "Yes", width: 10}
+      - {name: created_date, type: date, width: 14}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Products (shared catalogue — flag determines sellable/purchasable)
+  # ─────────────────────────────────────────────────────────────────
+  - name: Products
+    description: Shared catalogue of goods and services
+    primary_key: product_id
+    tab_color: "3B82F6"
+    fields:
+      - {name: product_id, type: id, prefix: "PROD-", width: 12}
+      - {name: sku, type: text, width: 14}
+      - {name: name, type: text, required: true, width: 35}
+      - {name: description, type: text, width: 40}
+      - {name: kind, type: enum, enum: product_kind, default: "Both", width: 14}
+      - {name: unit, type: text, default: "ea", width: 8}
+      - {name: default_sell_price, type: currency, width: 14}
+      - {name: default_buy_price, type: currency, width: 14}
+      - {name: default_vat_code, type: enum, enum: vat_code, default: "STD", width: 10}
+      - {name: reorder_level, type: number, width: 10, default: 0}
+      - {name: active, type: bool, default: "Yes", width: 10}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Sales Orders (header)
+  # ─────────────────────────────────────────────────────────────────
+  - name: SalesOrders
+    description: Customer orders — header level
+    primary_key: order_id
+    tab_color: "22C55E"
+    fields:
+      - {name: order_id, type: id, prefix: "SO-", width: 12}
+      - {name: order_date, type: date, width: 13}
+      - {name: customer_id, type: fk, references: "Customers.customer_id", width: 12}
+      - {name: customer_name, type: lookup, source: "Customers", key: customer_id, field: name, width: 28}
+      - {name: status, type: enum, enum: order_status, default: "Draft", width: 12}
+      - {name: required_date, type: date, width: 13}
+      - {name: shipped_date, type: date, width: 13}
+      - {name: po_reference, type: text, width: 16}
+      - {name: notes, type: text, width: 30}
+      - {name: subtotal, type: formula, width: 13,
+         expr: '=SUMIFS(SalesOrderLines[line_net],SalesOrderLines[order_id],[@order_id])',
+         format: currency}
+      - {name: vat_total, type: formula, width: 13,
+         expr: '=SUMIFS(SalesOrderLines[line_vat],SalesOrderLines[order_id],[@order_id])',
+         format: currency}
+      - {name: grand_total, type: formula, width: 13,
+         expr: '=[@subtotal]+[@vat_total]',
+         format: currency}
+      - {name: amount_paid, type: formula, width: 13,
+         expr: '=SUMIFS(Payments[amount],Payments[reference_id],[@order_id],Payments[direction],"In")',
+         format: currency}
+      - {name: balance_due, type: formula, width: 13,
+         expr: '=[@grand_total]-[@amount_paid]',
+         format: currency}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Sales Order Lines (detail)
+  # ─────────────────────────────────────────────────────────────────
+  - name: SalesOrderLines
+    description: Line items on sales orders
+    primary_key: line_id
+    tab_color: "22C55E"
+    fields:
+      - {name: line_id, type: id, prefix: "SOL-", width: 12}
+      - {name: order_id, type: fk, references: "SalesOrders.order_id", width: 12}
+      - {name: product_id, type: fk, references: "Products.product_id", width: 12}
+      - {name: product_name, type: lookup, source: "Products", key: product_id, field: name, width: 30}
+      - {name: quantity, type: number, default: 1, width: 10}
+      - {name: unit_price, type: currency, width: 13}
+      - {name: discount_pct, type: percent, default: 0, width: 11}
+      - {name: vat_code, type: enum, enum: vat_code, default: "STD", width: 10}
+      - {name: line_net, type: formula, width: 13,
+         expr: '=[@quantity]*[@unit_price]*(1-[@discount_pct])',
+         format: currency}
+      - {name: line_vat, type: formula, width: 13,
+         expr: '=[@line_net]*IFERROR(VLOOKUP([@vat_code],VatRates,2,FALSE),0)',
+         format: currency}
+      - {name: line_gross, type: formula, width: 13,
+         expr: '=[@line_net]+[@line_vat]',
+         format: currency}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Purchase Orders (header)
+  # ─────────────────────────────────────────────────────────────────
+  - name: PurchaseOrders
+    description: Orders placed with suppliers — header level
+    primary_key: po_id
+    tab_color: "F59E0B"
+    fields:
+      - {name: po_id, type: id, prefix: "PO-", width: 12}
+      - {name: po_date, type: date, width: 13}
+      - {name: supplier_id, type: fk, references: "Suppliers.supplier_id", width: 12}
+      - {name: supplier_name, type: lookup, source: "Suppliers", key: supplier_id, field: name, width: 28}
+      - {name: status, type: enum, enum: po_status, default: "Draft", width: 12}
+      - {name: expected_date, type: date, width: 13}
+      - {name: received_date, type: date, width: 13}
+      - {name: supplier_invoice_ref, type: text, width: 16}
+      - {name: notes, type: text, width: 30}
+      - {name: subtotal, type: formula, width: 13,
+         expr: '=SUMIFS(PurchaseOrderLines[line_net],PurchaseOrderLines[po_id],[@po_id])',
+         format: currency}
+      - {name: vat_total, type: formula, width: 13,
+         expr: '=SUMIFS(PurchaseOrderLines[line_vat],PurchaseOrderLines[po_id],[@po_id])',
+         format: currency}
+      - {name: grand_total, type: formula, width: 13,
+         expr: '=[@subtotal]+[@vat_total]',
+         format: currency}
+      - {name: amount_paid, type: formula, width: 13,
+         expr: '=SUMIFS(Payments[amount],Payments[reference_id],[@po_id],Payments[direction],"Out")',
+         format: currency}
+      - {name: balance_due, type: formula, width: 13,
+         expr: '=[@grand_total]-[@amount_paid]',
+         format: currency}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Purchase Order Lines (detail)
+  # ─────────────────────────────────────────────────────────────────
+  - name: PurchaseOrderLines
+    description: Line items on purchase orders
+    primary_key: line_id
+    tab_color: "F59E0B"
+    fields:
+      - {name: line_id, type: id, prefix: "POL-", width: 12}
+      - {name: po_id, type: fk, references: "PurchaseOrders.po_id", width: 12}
+      - {name: product_id, type: fk, references: "Products.product_id", width: 12}
+      - {name: product_name, type: lookup, source: "Products", key: product_id, field: name, width: 30}
+      - {name: quantity, type: number, default: 1, width: 10}
+      - {name: unit_price, type: currency, width: 13}
+      - {name: vat_code, type: enum, enum: vat_code, default: "STD", width: 10}
+      - {name: line_net, type: formula, width: 13,
+         expr: '=[@quantity]*[@unit_price]',
+         format: currency}
+      - {name: line_vat, type: formula, width: 13,
+         expr: '=[@line_net]*IFERROR(VLOOKUP([@vat_code],VatRates,2,FALSE),0)',
+         format: currency}
+      - {name: line_gross, type: formula, width: 13,
+         expr: '=[@line_net]+[@line_vat]',
+         format: currency}
+      - {name: quantity_received, type: number, default: 0, width: 12}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Payments (both incoming and outgoing)
+  # ─────────────────────────────────────────────────────────────────
+  - name: Payments
+    description: Payments received from customers or made to suppliers
+    primary_key: payment_id
+    tab_color: "A855F7"
+    fields:
+      - {name: payment_id, type: id, prefix: "PAY-", width: 12}
+      - {name: payment_date, type: date, width: 13}
+      - {name: direction, type: enum, enum: payment_direction, width: 10}
+      - {name: reference_id, type: text, width: 14,
+         description: "The order_id (SO-...) or po_id (PO-...) this payment relates to"}
+      - {name: amount, type: currency, width: 13}
+      - {name: method, type: enum, enum: payment_method, default: "Bank Transfer", width: 14}
+      - {name: reference, type: text, width: 20}
+      - {name: notes, type: text, width: 30}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Inventory Movements (stock ledger)
+  # ─────────────────────────────────────────────────────────────────
+  - name: InventoryMovements
+    description: Stock movements — positive for receipts, negative for dispatches
+    primary_key: movement_id
+    tab_color: "14B8A6"
+    fields:
+      - {name: movement_id, type: id, prefix: "MOV-", width: 12}
+      - {name: movement_date, type: date, width: 13}
+      - {name: product_id, type: fk, references: "Products.product_id", width: 12}
+      - {name: product_name, type: lookup, source: "Products", key: product_id, field: name, width: 30}
+      - {name: quantity, type: number, width: 10,
+         description: "Positive = into stock, negative = out of stock"}
+      - {name: movement_type, type: text, width: 14,
+         description: "Receipt / Dispatch / Adjustment / Opening"}
+      - {name: reference_id, type: text, width: 14,
+         description: "Related PO, SO, or manual adjustment"}
+      - {name: notes, type: text, width: 30}
+
+# ── Views: read-only sheets that summarise or join table data ──
+views:
+
+  - name: Dashboard
+    tab_color: "DC2626"
+    description: Top-level KPIs and summary tables
+
+  - name: StockLevels
+    tab_color: "14B8A6"
+    description: Current stock position per product (formula-driven)
+    base: Products
+    computed_columns:
+      - name: on_hand
+        expr: '=SUMIFS(InventoryMovements[quantity],InventoryMovements[product_id],[@product_id])'
+        format: number
+      - name: reorder_status
+        expr: '=IF([@on_hand]<=[@reorder_level],"REORDER","OK")'
+        format: text
+
+  - name: OpenSalesOrders
+    tab_color: "22C55E"
+    description: Sales orders not yet fully paid
+    base: SalesOrders
+    filter: 'balance_due > 0 AND status <> "Cancelled"'
+
+  - name: OpenPurchaseOrders
+    tab_color: "F59E0B"
+    description: Purchase orders not yet fully paid
+    base: PurchaseOrders
+    filter: 'balance_due > 0 AND status <> "Cancelled"'
